@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # ── WillAgent API ───────────────────────────────────────
+  willagent:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3100:3100"
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    volumes:
+      - ./src:/app/src
+    networks:
+      - agent-net
+
+  # ── Redis (State & Memory Layer) ────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - agent-net
+
+  # ── Ollama (Local Model Inference) ──────────────────────
+  # Uncomment when ready to run local models
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   networks:
+  #     - agent-net
+
+volumes:
+  redis-data:
+  # ollama-data:
+
+networks:
+  agent-net:
+    driver: bridge
