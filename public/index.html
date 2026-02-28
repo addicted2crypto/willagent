@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WillAgent Terminal</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0a0a0a;
+      color: #00ff00;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: #1a1a1a;
+      border-bottom: 1px solid #333;
+      padding: 12px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .header h1 {
+      color: #00ff00;
+      font-size: 16px;
+      font-weight: normal;
+    }
+
+    .header .status {
+      display: flex;
+      gap: 20px;
+      font-size: 12px;
+      color: #666;
+    }
+
+    .header .status .model {
+      color: #ffcc00;
+    }
+
+    .terminal {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      background: #0a0a0a;
+    }
+
+    .entry {
+      margin-bottom: 20px;
+      border-left: 2px solid #333;
+      padding-left: 15px;
+    }
+
+    .entry.user {
+      border-color: #0088ff;
+    }
+
+    .entry.agent {
+      border-color: #00ff00;
+    }
+
+    .entry.error {
+      border-color: #ff4444;
+    }
+
+    .entry-header {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .entry-header .label {
+      color: #888;
+    }
+
+    .entry-header .user-label {
+      color: #0088ff;
+    }
+
+    .entry-header .agent-label {
+      color: #00ff00;
+    }
+
+    .entry-content {
+      color: #ccc;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .entry.user .entry-content {
+      color: #fff;
+    }
+
+    .step {
+      margin: 10px 0;
+      padding: 10px;
+      background: #111;
+      border-radius: 4px;
+    }
+
+    .step-header {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 5px;
+    }
+
+    .step-type {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+
+    .step-type.thought { background: #333; color: #aaa; }
+    .step-type.action { background: #1a3a1a; color: #00ff00; }
+    .step-type.observation { background: #1a1a3a; color: #88aaff; }
+    .step-type.answer { background: #3a3a1a; color: #ffcc00; }
+
+    .meta {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #222;
+      font-size: 11px;
+      color: #555;
+      display: flex;
+      gap: 20px;
+    }
+
+    .meta span {
+      color: #666;
+    }
+
+    .input-area {
+      background: #1a1a1a;
+      border-top: 1px solid #333;
+      padding: 15px 20px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .input-area input {
+      flex: 1;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 12px 15px;
+      color: #fff;
+      font-family: inherit;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .input-area input:focus {
+      border-color: #00ff00;
+    }
+
+    .input-area input::placeholder {
+      color: #444;
+    }
+
+    .input-area button {
+      background: #00aa00;
+      border: none;
+      border-radius: 4px;
+      padding: 12px 25px;
+      color: #000;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .input-area button:hover {
+      background: #00cc00;
+    }
+
+    .input-area button:disabled {
+      background: #333;
+      color: #666;
+      cursor: not-allowed;
+    }
+
+    .loading {
+      display: inline-block;
+      color: #ffcc00;
+    }
+
+    .loading::after {
+      content: '';
+      animation: dots 1.5s infinite;
+    }
+
+    @keyframes dots {
+      0%, 20% { content: '.'; }
+      40% { content: '..'; }
+      60%, 100% { content: '...'; }
+    }
+
+    .blink {
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>> WillAgent Terminal v0.1</h1>
+    <div class="status">
+      <span>Model: <span class="model" id="currentModel">--</span></span>
+      <span>Status: <span id="statusIndicator">Ready</span></span>
+    </div>
+  </div>
+
+  <div class="terminal" id="terminal">
+    <div class="entry agent">
+      <div class="entry-header">
+        <span class="agent-label">SYSTEM</span> initialized
+      </div>
+      <div class="entry-content">WillAgent ready. Routes: VL 30B (simple) | GPT120B (complex) | Claude (critical)
+Type a query below to test the agent.</div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <input
+      type="text"
+      id="queryInput"
+      placeholder="Enter your query..."
+      autocomplete="off"
+    />
+    <button id="submitBtn" onclick="submitQuery()">Execute</button>
+  </div>
+
+  <script>
+    const terminal = document.getElementById('terminal');
+    const queryInput = document.getElementById('queryInput');
+    const submitBtn = document.getElementById('submitBtn');
+    const currentModel = document.getElementById('currentModel');
+    const statusIndicator = document.getElementById('statusIndicator');
+
+    // Submit on Enter
+    queryInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !submitBtn.disabled) {
+        submitQuery();
+      }
+    });
+
+    async function submitQuery() {
+      const query = queryInput.value.trim();
+      if (!query) return;
+
+      // Disable input
+      submitBtn.disabled = true;
+      queryInput.disabled = true;
+      statusIndicator.innerHTML = '<span class="loading">Processing</span>';
+
+      // Add user entry
+      addEntry('user', query);
+      queryInput.value = '';
+
+      // Add loading entry
+      const loadingEntry = addEntry('agent', '<span class="loading">Thinking</span>', true);
+
+      try {
+        const startTime = Date.now();
+        const response = await fetch('/api/v1/agent/task', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: query })
+        });
+
+        const data = await response.json();
+        const elapsed = Date.now() - startTime;
+
+        // Remove loading entry
+        loadingEntry.remove();
+
+        // Update model indicator
+        currentModel.textContent = data.model || '--';
+
+        // Add response
+        addAgentResponse(data, elapsed);
+
+      } catch (error) {
+        loadingEntry.remove();
+        addEntry('error', `Error: ${error.message}`);
+      }
+
+      // Re-enable input
+      submitBtn.disabled = false;
+      queryInput.disabled = false;
+      queryInput.focus();
+      statusIndicator.textContent = 'Ready';
+    }
+
+    function addEntry(type, content, isHtml = false) {
+      const entry = document.createElement('div');
+      entry.className = `entry ${type}`;
+
+      const time = new Date().toLocaleTimeString();
+      const label = type === 'user' ? 'USER' : type === 'error' ? 'ERROR' : 'AGENT';
+      const labelClass = type === 'user' ? 'user-label' : type === 'error' ? 'error-label' : 'agent-label';
+
+      entry.innerHTML = `
+        <div class="entry-header">
+          <span class="${labelClass}">${label}</span> ${time}
+        </div>
+        <div class="entry-content">${isHtml ? content : escapeHtml(content)}</div>
+      `;
+
+      terminal.appendChild(entry);
+      terminal.scrollTop = terminal.scrollHeight;
+      return entry;
+    }
+
+    function addAgentResponse(data, elapsed) {
+      const entry = document.createElement('div');
+      entry.className = 'entry agent';
+
+      const time = new Date().toLocaleTimeString();
+
+      // Build steps HTML
+      let stepsHtml = '';
+      if (data.steps && data.steps > 0) {
+        stepsHtml = `<div class="step">
+          <div class="step-header"><span class="step-type thought">THOUGHT</span> ReACT loop executed ${data.steps} step(s)</div>
+        </div>`;
+      }
+
+      // Complexity badge color
+      const complexityColors = {
+        low: '#00aa00',
+        medium: '#ffaa00',
+        high: '#ff6600',
+        critical: '#ff0000'
+      };
+      const complexityColor = complexityColors[data.complexity] || '#888';
+
+      entry.innerHTML = `
+        <div class="entry-header">
+          <span class="agent-label">AGENT</span> ${time}
+        </div>
+        ${stepsHtml}
+        <div class="step">
+          <div class="step-header"><span class="step-type answer">ANSWER</span></div>
+          <div class="entry-content">${escapeHtml(data.answer || data.error || 'No response')}</div>
+        </div>
+        <div class="meta">
+          <span>Complexity: <span style="color: ${complexityColor}">${data.complexity || '--'}</span></span>
+          <span>Model: ${data.model || '--'}</span>
+          <span>Time: ${elapsed}ms</span>
+          <span>Status: ${data.status || '--'}</span>
+        </div>
+      `;
+
+      terminal.appendChild(entry);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Focus input on load
+    queryInput.focus();
+  </script>
+</body>
+</html>

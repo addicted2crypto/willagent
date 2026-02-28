@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
 import {
   agentConfig,
   claudeConfig,
@@ -28,6 +30,10 @@ import { AgentModule } from './agent/agent.module';
       envFilePath: ['.env', '.env.local'],
     }),
     EventEmitterModule.forRoot(),
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'public'),
+      exclude: ['/api*', '/docs*'],
+    }),
     AgentModule,
   ],
 })
