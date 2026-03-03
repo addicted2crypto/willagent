@@ -1,14 +1,20 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { LoggerService } from './common/logger/logger.service';
 
 async function bootstrap() {
+  // Create app with buffered logs (we'll attach winston after)
   const app = await NestFactory.create(AppModule, {
-    logger: ['log', 'error', 'warn', 'debug', 'verbose'],
+    bufferLogs: true,
   });
 
-  const logger = new Logger('Bootstrap');
+  // Use our winston-based logger for all NestJS logs
+  // resolve() required because LoggerService is TRANSIENT scoped
+  const logger = await app.resolve(LoggerService);
+  logger.setContext('Bootstrap');
+  app.useLogger(logger);
 
   // Validation
   app.useGlobalPipes(
@@ -38,8 +44,8 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3100;
   await app.listen(port);
 
-  logger.log(`🤖 WillAgent running on http://localhost:${port}`);
-  logger.log(`📚 Swagger docs at http://localhost:${port}/docs`);
+  logger.log(`WillAgent running on http://localhost:${port}`);
+  logger.log(`Swagger docs at http://localhost:${port}/docs`);
 }
 
 bootstrap();

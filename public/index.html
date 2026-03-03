@@ -97,6 +97,110 @@
       word-break: break-word;
     }
 
+    /* Wallet address styling */
+    .wallet-addr {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: #00ccff;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+
+    .wallet-addr .addr-text {
+      border-bottom: 1px dotted #00ccff;
+    }
+
+    .wallet-addr:hover .addr-text {
+      color: #00ffff;
+      border-bottom-style: solid;
+    }
+
+    .wallet-addr .full {
+      display: none;
+    }
+
+    .wallet-addr.revealed .short {
+      display: none;
+    }
+
+    .wallet-addr.revealed .full {
+      display: inline;
+    }
+
+    .wallet-addr .addr-links {
+      display: inline-flex;
+      gap: 2px;
+      font-size: 9px;
+    }
+
+    .wallet-addr .addr-links a {
+      color: #555;
+      text-decoration: none;
+      padding: 1px 4px;
+      border-radius: 2px;
+      background: #1a1a1a;
+      transition: all 0.15s;
+    }
+
+    .wallet-addr .addr-links a:hover {
+      color: #fff;
+      background: #333;
+    }
+
+    .wallet-addr .addr-links a.debank:hover { background: #fe815f20; color: #fe815f; }
+    .wallet-addr .addr-links a.snowtrace:hover { background: #e8414120; color: #e84141; }
+
+    .wallet-addr .reveal-btn {
+      font-size: 9px;
+      color: #444;
+      cursor: pointer;
+      padding: 1px 3px;
+      border-radius: 2px;
+      background: #1a1a1a;
+    }
+
+    .wallet-addr .reveal-btn:hover {
+      color: #00ff00;
+      background: #1a2a1a;
+    }
+
+    .wallet-addr.revealed .reveal-btn {
+      color: #666;
+    }
+
+    /* Privacy mode - blur addresses for screenshots */
+    body.privacy-mode .wallet-addr {
+      filter: blur(4px);
+      user-select: none;
+    }
+
+    body.privacy-mode .wallet-addr:hover {
+      filter: blur(0);
+    }
+
+    .privacy-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #666;
+      transition: all 0.2s;
+    }
+
+    .privacy-toggle:hover {
+      background: #222;
+      color: #888;
+    }
+
+    .privacy-toggle.active {
+      background: #331a1a;
+      color: #ff6666;
+    }
+
     .entry.user .entry-content {
       color: #fff;
     }
@@ -217,12 +321,111 @@
       0%, 50% { opacity: 1; }
       51%, 100% { opacity: 0; }
     }
+
+    /* Progress Panel (Thinking...) */
+    .progress-panel {
+      background: #1a1a2a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 15px;
+      margin: 10px 0;
+      display: none;
+    }
+
+    .progress-panel.active {
+      display: block;
+    }
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .progress-title {
+      color: #ffcc00;
+      font-weight: bold;
+      font-size: 12px;
+    }
+
+    .progress-percent {
+      color: #00ff00;
+      font-size: 12px;
+    }
+
+    .progress-bar {
+      background: #222;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+
+    .progress-bar-fill {
+      background: linear-gradient(90deg, #00aa00, #00ff00);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .progress-steps {
+      font-size: 11px;
+      color: #888;
+    }
+
+    .progress-step {
+      padding: 3px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .progress-step::before {
+      content: '├──';
+      color: #444;
+    }
+
+    .progress-step:last-child::before {
+      content: '└──';
+    }
+
+    .progress-step.current {
+      color: #00ff00;
+    }
+
+    .progress-step.done {
+      color: #666;
+    }
+
+    /* Retry button for errors */
+    .retry-btn {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 6px 12px;
+      background: #332222;
+      border: 1px solid #ff4444;
+      border-radius: 4px;
+      color: #ff6666;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .retry-btn:hover {
+      background: #442222;
+      color: #ff8888;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>> WillAgent Terminal v0.1</h1>
     <div class="status">
+      <div class="privacy-toggle" id="privacyToggle" onclick="togglePrivacy()" title="Blur addresses for screenshots">
+        <span>[PRIVACY]</span>
+      </div>
       <span>Model: <span class="model" id="currentModel">--</span></span>
       <span>Status: <span id="statusIndicator">Ready</span></span>
     </div>
@@ -255,6 +458,12 @@ Type a query below to test the agent.</div>
     const currentModel = document.getElementById('currentModel');
     const statusIndicator = document.getElementById('statusIndicator');
 
+    // Track progress panel and SSE connection
+    let progressPanel = null;
+    let progressSteps = [];
+    let eventSource = null;
+    let lastQuery = null; // For retry functionality
+
     // Submit on Enter
     queryInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !submitBtn.disabled) {
@@ -271,12 +480,19 @@ Type a query below to test the agent.</div>
       queryInput.disabled = true;
       statusIndicator.innerHTML = '<span class="loading">Processing</span>';
 
+      // Save for retry
+      lastQuery = query;
+
       // Add user entry
       addEntry('user', query);
       queryInput.value = '';
 
-      // Add loading entry
-      const loadingEntry = addEntry('agent', '<span class="loading">Thinking</span>', true);
+      // Create progress panel
+      progressPanel = createProgressPanel();
+      progressSteps = [];
+
+      // Subscribe to all progress events (we'll filter client-side)
+      subscribeToProgress();
 
       try {
         const startTime = Date.now();
@@ -289,8 +505,17 @@ Type a query below to test the agent.</div>
         const data = await response.json();
         const elapsed = Date.now() - startTime;
 
-        // Remove loading entry
-        loadingEntry.remove();
+        // Close SSE connection
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+
+        // Remove progress panel
+        if (progressPanel) {
+          progressPanel.remove();
+          progressPanel = null;
+        }
 
         // Update model indicator
         currentModel.textContent = data.model || '--';
@@ -299,8 +524,15 @@ Type a query below to test the agent.</div>
         addAgentResponse(data, elapsed);
 
       } catch (error) {
-        loadingEntry.remove();
-        addEntry('error', `Error: ${error.message}`);
+        if (progressPanel) {
+          progressPanel.remove();
+          progressPanel = null;
+        }
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        addErrorWithRetry(error.message, lastQuery);
       }
 
       // Re-enable input
@@ -308,6 +540,96 @@ Type a query below to test the agent.</div>
       queryInput.disabled = false;
       queryInput.focus();
       statusIndicator.textContent = 'Ready';
+    }
+
+    function createProgressPanel() {
+      const panel = document.createElement('div');
+      panel.className = 'progress-panel active';
+      panel.innerHTML = `
+        <div class="progress-header">
+          <span class="progress-title">THINKING...</span>
+          <span class="progress-percent" id="progressPercent">0%</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <div class="progress-steps" id="progressSteps">
+          <div class="progress-step current">Initializing...</div>
+        </div>
+      `;
+      terminal.appendChild(panel);
+      terminal.scrollTop = terminal.scrollHeight;
+      return panel;
+    }
+
+    function updateProgress(data) {
+      if (!progressPanel) return;
+
+      const percentEl = document.getElementById('progressPercent');
+      const barFill = document.getElementById('progressBarFill');
+      const stepsEl = document.getElementById('progressSteps');
+
+      if (percentEl && data.progress !== undefined) {
+        percentEl.textContent = `${data.progress}%`;
+      }
+      if (barFill && data.progress !== undefined) {
+        barFill.style.width = `${data.progress}%`;
+      }
+      if (stepsEl && data.message) {
+        // Add new step
+        progressSteps.push(data.message);
+        // Keep last 5 steps
+        const recentSteps = progressSteps.slice(-5);
+        stepsEl.innerHTML = recentSteps.map((msg, i) => {
+          const isCurrent = i === recentSteps.length - 1;
+          return `<div class="progress-step ${isCurrent ? 'current' : 'done'}">${escapeHtml(msg)}</div>`;
+        }).join('');
+      }
+
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function subscribeToProgress() {
+      // Subscribe to all progress events stream
+      eventSource = new EventSource('/api/v1/agent/progress/all');
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          updateProgress(data);
+        } catch (e) {
+          console.error('Failed to parse progress event:', e);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.log('SSE connection closed or error');
+        // Don't remove panel on error - task might still be running
+      };
+    }
+
+    function addErrorWithRetry(errorMsg, query) {
+      const entry = document.createElement('div');
+      entry.className = 'entry error';
+      const time = new Date().toLocaleTimeString();
+
+      entry.innerHTML = `
+        <div class="entry-header">
+          <span class="error-label">ERROR</span> ${time}
+        </div>
+        <div class="entry-content">
+          Error: ${escapeHtml(errorMsg)}
+          <button class="retry-btn" onclick="retryQuery('${escapeHtml(query).replace(/'/g, "\\'")}')">Retry</button>
+        </div>
+      `;
+
+      terminal.appendChild(entry);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function retryQuery(query) {
+      queryInput.value = query;
+      submitQuery();
     }
 
     function addEntry(type, content, isHtml = false) {
@@ -360,7 +682,7 @@ Type a query below to test the agent.</div>
         ${stepsHtml}
         <div class="step">
           <div class="step-header"><span class="step-type answer">ANSWER</span></div>
-          <div class="entry-content">${escapeHtml(data.answer || data.error || 'No response')}</div>
+          <div class="entry-content">${processAddresses(data.answer || data.error || 'No response')}</div>
         </div>
         <div class="meta">
           <span>Complexity: <span style="color: ${complexityColor}">${data.complexity || '--'}</span></span>
@@ -378,6 +700,48 @@ Type a query below to test the agent.</div>
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // Process text to convert addresses to clickable links
+    function processAddresses(text) {
+      // First escape HTML
+      let escaped = escapeHtml(text);
+
+      // Match full Ethereum addresses (0x + 40 hex chars)
+      const fullAddrRegex = /0x[a-fA-F0-9]{40}/g;
+
+      // Match shortened addresses (0x1234...abcd pattern)
+      const shortAddrRegex = /0x[a-fA-F0-9]{4,10}\.\.\.+[a-fA-F0-9]{4,6}/g;
+
+      // Replace full addresses with clickable links + explorer buttons
+      escaped = escaped.replace(fullAddrRegex, (addr) => {
+        const short = `${addr.slice(0, 10)}...${addr.slice(-6)}`;
+        return `<span class="wallet-addr">` +
+               `<span class="addr-text"><span class="short">${short}</span><span class="full">${addr}</span></span>` +
+               `<span class="addr-links">` +
+               `<a href="https://debank.com/profile/${addr}" target="_blank" class="debank" title="DeBank Profile">DB</a>` +
+               `<a href="https://snowtrace.io/address/${addr}" target="_blank" class="snowtrace" title="Snowtrace">ST</a>` +
+               `</span>` +
+               `<span class="reveal-btn" onclick="this.parentElement.classList.toggle('revealed')" title="Show full address">[+]</span>` +
+               `</span>`;
+      });
+
+      // Replace shortened addresses (style only - can't link without full address)
+      escaped = escaped.replace(shortAddrRegex, (addr) => {
+        return `<span class="wallet-addr" style="cursor: default;">` +
+               `<span class="addr-text" style="border-bottom-style: dashed;" title="Shortened address (full not available)">${addr}</span>` +
+               `</span>`;
+      });
+
+      return escaped;
+    }
+
+    // Toggle privacy mode for screenshots
+    function togglePrivacy() {
+      const body = document.body;
+      const toggle = document.getElementById('privacyToggle');
+      body.classList.toggle('privacy-mode');
+      toggle.classList.toggle('active');
     }
 
     // Focus input on load

@@ -140,7 +140,7 @@ export class ModelRouterService {
         return {
           provider: ModelProvider.LOCAL,
           model: this.localConfig.model,
-          reasoning: 'Simple task — ROBai-Micro (Qwen3 30B) is fast and sufficient',
+          reasoning: 'Simple task -ROBai-Micro (Qwen3 30B) is fast and sufficient',
           estimatedCost: 0,
           complexity,
         };
@@ -151,7 +151,7 @@ export class ModelRouterService {
           return {
             provider: ModelProvider.LOCAL,
             model: this.localConfig.model,
-            reasoning: 'Medium complexity — ROBai-Micro can handle with tool access',
+            reasoning: 'Medium complexity -ROBai-Micro can handle with tool access',
             estimatedCost: 0,
             complexity,
           };
@@ -160,7 +160,7 @@ export class ModelRouterService {
         return {
           provider: ModelProvider.TURBO,
           model: this.turboConfig.model,
-          reasoning: 'Medium complexity with multi-tool — ROBai-Turbo for reliable orchestration',
+          reasoning: 'Medium complexity with multi-tool -ROBai-Turbo for reliable orchestration',
           estimatedCost: 0,
           complexity,
         };
@@ -170,7 +170,7 @@ export class ModelRouterService {
         return {
           provider: ModelProvider.TURBO,
           model: this.turboConfig.model,
-          reasoning: 'High complexity — ROBai-Turbo (GPT 120B) for advanced reasoning',
+          reasoning: 'High complexity -ROBai-Turbo (GPT 120B) for advanced reasoning',
           estimatedCost: 0,
           complexity,
         };
@@ -181,7 +181,7 @@ export class ModelRouterService {
           return {
             provider: ModelProvider.CLAUDE,
             model: this.claudeApiConfig.model,
-            reasoning: 'Critical task requiring best reasoning — Claude API',
+            reasoning: 'Critical task requiring best reasoning -Claude API',
             estimatedCost: this.estimateCost(8000),
             complexity,
           };
@@ -190,7 +190,7 @@ export class ModelRouterService {
         return {
           provider: ModelProvider.TURBO,
           model: this.turboConfig.model,
-          reasoning: 'Critical task — ROBai-Turbo (Claude API not configured)',
+          reasoning: 'Critical task -ROBai-Turbo (Claude API not configured)',
           estimatedCost: 0,
           complexity,
         };

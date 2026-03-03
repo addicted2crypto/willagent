@@ -13,6 +13,7 @@ import { ModelRouterService } from '../models/model-router.service';
 import { ModelClientService, CompletionRequest } from '../models/model-client.service';
 import { ToolRegistryService } from '../tools/tool-registry.service';
 import { MemoryService } from '../memory/memory.service';
+import { CommandParserService } from './command-parser.service';
 
 /**
  * AgentOrchestratorService
@@ -39,6 +40,7 @@ export class AgentOrchestratorService {
     private readonly toolRegistry: ToolRegistryService,
     private readonly memory: MemoryService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly commandParser: CommandParserService,
   ) {}
 
   /**
@@ -90,7 +92,17 @@ export class AgentOrchestratorService {
     );
 
     try {
-      await this.runReactLoop(task, routing.provider);
+      // ── Direct Command Execution ──
+      // Check if this is a recognizable command pattern that can skip LLM
+      const directCommand = this.commandParser.parse(input);
+
+      if (directCommand) {
+        this.logger.log(`Direct command detected: ${directCommand.tool}.${directCommand.action}`);
+        await this.executeDirectCommand(task, directCommand);
+      } else {
+        // Fall back to full ReACT loop
+        await this.runReactLoop(task, routing.provider);
+      }
     } catch (error) {
       task.status = TaskStatus.FAILED;
       task.finalAnswer = `Agent error: ${error.message}`;
@@ -182,11 +194,11 @@ export class AgentOrchestratorService {
           };
           task.steps.push(actionStep);
 
-          // Execute the tool
+          // Execute the tool (inject taskId so tools can emit progress events)
           task.status = TaskStatus.AWAITING_TOOL;
           const toolResult = await this.toolRegistry.execute({
             toolName: toolCall.name,
-            arguments: toolCall.arguments,
+            arguments: { ...toolCall.arguments, _taskId: task.id },
           });
 
           // Record observation
@@ -228,6 +240,17 @@ export class AgentOrchestratorService {
 
       // ── Handle final answer (no tool calls) ──
       if (response.content && !response.toolCalls?.length) {
+        // Validate answer quality - log if suspicious
+        const isSuspicious =
+          response.content.length < 50 ||
+          response.content.toLowerCase().includes('deciding to use tool') ||
+          response.content.toLowerCase().includes('i will use') ||
+          response.content.toLowerCase().startsWith('tool:');
+
+        if (isSuspicious) {
+          this.logger.warn(`Task ${task.id} got suspicious final answer: "${response.content.slice(0, 100)}"`);
+        }
+
         const finalStep: AgentStep = {
           id: uuid(),
           type: StepType.FINAL,
@@ -253,11 +276,140 @@ export class AgentOrchestratorService {
         : 'Task could not be completed within iteration limits.';
   }
 
+  // ── Direct Command Execution ────────────────────────────────
+
+  /**
+   * Execute a parsed command directly without LLM reasoning.
+   * This provides fast, predictable execution for common operations.
+   */
+  private async executeDirectCommand(
+    task: AgentTask,
+    command: { tool: string; action: string; args: Record<string, unknown>; raw: string },
+  ): Promise<void> {
+    task.status = TaskStatus.EXECUTING;
+
+    // Handle built-in "help" command
+    if (command.tool === 'help') {
+      const helpText = `
+═══════════════════════════════════════════════════════
+ WILLAGENT COMMANDS
+═══════════════════════════════════════════════════════
+
+ CLUSTER ANALYSIS (find related wallets):
+   <address>                    → Analyze wallet, find alts
+   cluster vroshi55              → Analyze known wallet by name
+   0x... tag as "whale1"        → Analyze + save with tag
+
+ WALLET TRACKING:
+   track 0x... as "name"        → Track wallet with tag
+   list                         → Show tracked wallets
+
+ VIEW CLUSTERS:
+   view <name>                  → Show cluster by name
+
+ EXAMPLES:
+   0x168e8d263634ef25ef84a643d231ae39ceb75909 tag vroshi55
+   cluster hashcash
+   view vroshi55
+   list
+
+═══════════════════════════════════════════════════════
+      `.trim();
+
+      task.finalAnswer = helpText;
+      task.status = TaskStatus.COMPLETED;
+      task.steps.push({
+        id: uuid(),
+        type: StepType.FINAL,
+        content: helpText,
+        model: 'DIRECT' as ModelProvider,
+        tokenUsage: { input: 0, output: 0 },
+        latencyMs: 0,
+        timestamp: new Date(),
+      });
+      return;
+    }
+
+    // Record the direct action
+    const actionStep: AgentStep = {
+      id: uuid(),
+      type: StepType.ACTION,
+      content: `Direct command: ${command.tool}.${command.action}`,
+      toolCall: {
+        toolName: command.tool,
+        arguments: command.args,
+      },
+      model: 'DIRECT' as ModelProvider,
+      tokenUsage: { input: 0, output: 0 },
+      latencyMs: 0,
+      timestamp: new Date(),
+    };
+    task.steps.push(actionStep);
+
+    // Execute the tool
+    task.status = TaskStatus.AWAITING_TOOL;
+    const toolResult = await this.toolRegistry.execute({
+      toolName: command.tool,
+      arguments: { ...command.args, _taskId: task.id },
+    });
+
+    // Record observation
+    const observationStep: AgentStep = {
+      id: uuid(),
+      type: StepType.OBSERVATION,
+      content: toolResult.success ? toolResult.output : `Error: ${toolResult.error}`,
+      toolResult,
+      model: 'DIRECT' as ModelProvider,
+      tokenUsage: { input: 0, output: 0 },
+      latencyMs: toolResult.executionTimeMs,
+      timestamp: new Date(),
+    };
+    task.steps.push(observationStep);
+
+    // Use tool output as final answer
+    const finalStep: AgentStep = {
+      id: uuid(),
+      type: StepType.FINAL,
+      content: toolResult.success ? toolResult.output : `Error: ${toolResult.error}`,
+      model: 'DIRECT' as ModelProvider,
+      tokenUsage: { input: 0, output: 0 },
+      latencyMs: 0,
+      timestamp: new Date(),
+    };
+    task.steps.push(finalStep);
+
+    task.finalAnswer = finalStep.content;
+    task.status = toolResult.success ? TaskStatus.COMPLETED : TaskStatus.FAILED;
+
+    // Audit log
+    await this.memory.logAudit({
+      id: uuid(),
+      taskId: task.id,
+      action: `direct:${command.tool}.${command.action}`,
+      details: {
+        command: command.raw,
+        arguments: command.args,
+        success: toolResult.success,
+      },
+      timestamp: new Date(),
+      provider: 'DIRECT' as ModelProvider,
+      toolName: command.tool,
+    });
+  }
+
   // ── Prompt Construction ────────────────────────────────────
 
   private buildSystemPrompt(task: AgentTask): string {
     const tools = this.toolRegistry.getFilteredDefinitions(task.context.allowedTools);
-    const toolList = tools.map(t => `- ${t.name}: ${t.description}`).join('\n');
+    const toolList = tools.map(t => {
+      const schema = t.inputSchema as { properties?: Record<string, unknown> };
+      const params = schema?.properties ? Object.keys(schema.properties).join(', ') : '';
+      return `- ${t.name}(${params}): ${t.description}`;
+    }).join('\n');
+
+    const toolSchemas = tools.map(t => {
+      return `### ${t.name}\n\`\`\`json\n${JSON.stringify(t.inputSchema, null, 2)}\n\`\`\``;
+    }).join('\n\n');
 
     return `You are WillAgent, an autonomous AI assistant with access to tools.
 
@@ -266,20 +418,34 @@ Your task: Complete the user's request by reasoning step-by-step and using tools
 ## Available Tools
 ${toolList}
 
+## Tool Schemas
+${toolSchemas}
+
+## How to Use Tools
+To call a tool, output the tool name followed by JSON arguments:
+
+EXAMPLE:
+To list tracked wallets:
+avax_wallet {"action": "list"}
+
+To track a new wallet:
+avax_wallet {"action": "track", "address": "0x123...", "tag": "whale1"}
+
+To profile a wallet:
+avax_profile {"action": "profile", "address": "0x456..."}
+
 ## Instructions
-1. Think through what you need to do
-2. If you need information or need to perform an action, use the appropriate tool
-3. After receiving tool results, reason about what to do next
-4. When you have enough information to answer, provide your final response directly (without calling a tool)
+1. Think briefly about what you need to do
+2. If you need to use a tool, output ONLY the tool call (tool name + JSON)
+3. After receiving [Tool Result], reason about what to do next
+4. When done, provide your final answer without any tool call
 
 ## Rules
-- Be concise and precise in tool arguments
-- If a tool fails, try an alternative approach
-- Never fabricate tool results — only use actual observations
-- If you cannot complete the task, explain what went wrong
-- Iteration limit: ${task.context.maxIterations} steps
-
-Current task ID: ${task.id}`;
+- Output ONE tool call at a time, nothing else on that line
+- Use valid JSON for arguments
+- Be concise - don't explain what you're about to do, just do it
+- Never fabricate results - only use actual [Tool Result] observations
+- Iteration limit: ${task.context.maxIterations} steps`;
   }
 
   private buildMessages(
