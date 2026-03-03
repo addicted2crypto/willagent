@@ -46,3 +46,12 @@ export const sandboxConfig = registerAs('sandbox', () => ({
   cpuLimit: process.env.SANDBOX_CPU_LIMIT || '0.5',
   network: process.env.SANDBOX_NETWORK || 'none',
 }));
+
+// AVAX C-Chain configuration
+export const avaxConfig = registerAs('avax', () => ({
+  rpcUrl: process.env.AVAX_RPC_URL ?? 'https://api.avax.network/ext/bc/C/rpc',
+  alchemyUrl: process.env.ALCHEMY_AVAX_URL,
+  ankrApiKey: process.env.ANKR_API_KEY,  // Premium RPC endpoint
+  snowtraceKey: process.env.SNOWTRACE_API_KEY,
+  pollIntervalMs: parseInt(process.env.AVAX_POLL_INTERVAL_MS ?? '30000', 10),
+}));

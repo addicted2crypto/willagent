@@ -82,7 +82,7 @@ export class ModelClientService {
 
   private async callClaude(request: CompletionRequest): Promise<CompletionResponse> {
     if (!this.claudeClient) {
-      throw new Error('Claude API client not initialized — check CLAUDE_API_KEY');
+      throw new Error('Claude API client not initialized -check CLAUDE_API_KEY');
     }
 
     const tools = request.tools?.map(t => ({
@@ -151,6 +151,16 @@ export class ModelClientService {
       ...request.messages,
     ];
 
+    // Convert tools to OpenAI format
+    const tools = request.tools?.map(t => ({
+      type: 'function' as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema,
+      },
+    }));
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -169,6 +179,7 @@ export class ModelClientService {
         temperature: request.temperature ?? 0.3,
         max_tokens: request.maxTokens ?? this.configService.get(`${configKey}.maxTokens`),
         stream: false,
+        ...(tools?.length ? { tools, tool_choice: 'auto' } : {}),
         ...(request.stopSequences?.length
           ? { stop: request.stopSequences }
           : {}),
@@ -199,9 +210,40 @@ export class ModelClientService {
 
     const data = await response.json();
     const choice = data.choices?.[0];
+    const message = choice?.message;
+
+    // Parse tool calls from OpenAI format (native function calling)
+    const toolCalls: CompletionResponse['toolCalls'] = [];
+    if (message?.tool_calls?.length) {
+      for (const tc of message.tool_calls) {
+        try {
+          toolCalls.push({
+            id: tc.id ?? `call_${Date.now()}`,
+            name: tc.function?.name ?? '',
+            arguments: typeof tc.function?.arguments === 'string'
+              ? JSON.parse(tc.function.arguments)
+              : tc.function?.arguments ?? {},
+          });
+        } catch (e) {
+          this.logger.warn(`Failed to parse tool call arguments: ${e}`);
+        }
+      }
+    }
+
+    // Fallback: parse tool calls from text content if model doesn't support native function calling
+    // Look for patterns like: <tool>tool_name</tool> <args>{"key": "value"}</args>
+    // Or: TOOL: tool_name ARGS: {"key": "value"}
+    const content = message?.content ?? '';
+    if (toolCalls.length === 0 && content && request.tools?.length) {
+      const parsed = this.parseToolCallFromText(content, request.tools);
+      if (parsed) {
+        toolCalls.push(parsed);
+      }
+    }
 
     return {
-      content: choice?.message?.content ?? '',
+      content,
+      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       tokenUsage: {
         input: data.usage?.prompt_tokens ?? 0,
         output: data.usage?.completion_tokens ?? 0,
@@ -209,5 +251,68 @@ export class ModelClientService {
       model: data.model ?? model,
       stopReason: choice?.finish_reason ?? 'stop',
     };
+  }
+
+  /**
+   * Parse tool calls from text output when native function calling isn't supported.
+   * Looks for JSON blocks that match tool schemas.
+   */
+  private parseToolCallFromText(
+    content: string,
+    tools: ToolDefinition[],
+  ): { id: string; name: string; arguments: Record<string, unknown> } | null {
+    const toolNames = tools.map(t => t.name);
+
+    // Pattern 1: Look for tool name followed by JSON
+    // e.g., "avax_wallet {"action": "list"}" or "avax_wallet: {"action": "list"}"
+    for (const toolName of toolNames) {
+      const patterns = [
+        new RegExp(`${toolName}[:\\s]*({[\\s\\S]*?})`, 'i'),
+        new RegExp(`<tool>${toolName}</tool>[\\s\\S]*?<args>({[\\s\\S]*?})</args>`, 'i'),
+        new RegExp(`TOOL:\\s*${toolName}[\\s\\S]*?ARGS:\\s*({[\\s\\S]*?})(?:\\n|$)`, 'i'),
+      ];
+
+      for (const pattern of patterns) {
+        const match = content.match(pattern);
+        if (match?.[1]) {
+          try {
+            const args = JSON.parse(match[1]);
+            this.logger.debug(`Parsed tool call from text: ${toolName}`);
+            return {
+              id: `text_${Date.now()}`,
+              name: toolName,
+              arguments: args,
+            };
+          } catch {
+            // JSON parse failed, try next pattern
+          }
+        }
+      }
+    }
+
+    // Pattern 2: Look for any JSON object with an "action" field that matches tool input schema
+    const jsonMatch = content.match(/\{[\s\S]*?"action"[\s\S]*?\}/);
+    if (jsonMatch) {
+      try {
+        const args = JSON.parse(jsonMatch[0]);
+        // Find a tool that this could apply to based on the action
+        for (const tool of tools) {
+          const schema = tool.inputSchema as { properties?: { action?: { enum?: string[] } } };
+          const validActions = schema?.properties?.action?.enum;
+          if (validActions?.includes(args.action)) {
+            this.logger.debug(`Inferred tool ${tool.name} from action: ${args.action}`);
+            return {
+              id: `inferred_${Date.now()}`,
+              name: tool.name,
+              arguments: args,
+            };
+          }
+        }
+      } catch {
+        // JSON parse failed
+      }
+    }
+
+    return null;
   }
 }

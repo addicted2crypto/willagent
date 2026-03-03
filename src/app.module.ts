@@ -11,8 +11,11 @@ import {
   openwebuiConfig,
   redisConfig,
   sandboxConfig,
+  avaxConfig,
 } from '../config/configuration';
 import { AgentModule } from './agent/agent.module';
+import { AvaxModule } from './avax/avax.module';
+import { LoggerModule } from './common/logger/logger.module';
 
 @Module({
   imports: [
@@ -26,6 +29,7 @@ import { AgentModule } from './agent/agent.module';
         openwebuiConfig,
         redisConfig,
         sandboxConfig,
+        avaxConfig,
       ],
       envFilePath: ['.env', '.env.local'],
     }),
@@ -34,7 +38,9 @@ import { AgentModule } from './agent/agent.module';
       rootPath: join(process.cwd(), 'public'),
       exclude: ['/api*', '/docs*'],
     }),
+    LoggerModule,
     AgentModule,
+    AvaxModule,
   ],
 })
 export class AppModule {}

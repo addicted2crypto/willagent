@@ -58,15 +58,17 @@ export class MemoryService implements OnModuleDestroy {
       });
 
       this.redis.on('error', (err) => {
-        this.logger.warn(`Redis error: ${err.message} — falling back to in-memory`);
+        if (this.connected) {
+          this.logger.warn(`Redis error: ${err.message} -falling back to in-memory`);
+        }
         this.connected = false;
       });
 
       this.redis.connect().catch(() => {
-        this.logger.warn('Redis unavailable — using in-memory fallback');
+        this.logger.warn('Redis unavailable -using in-memory fallback');
       });
     } catch {
-      this.logger.warn('Redis init failed — using in-memory fallback');
+      this.logger.warn('Redis init failed -using in-memory fallback');
     }
   }
 
@@ -165,6 +167,15 @@ export class MemoryService implements OnModuleDestroy {
       await this.redis.setex(key, ttl ?? this.TTL.cache, value);
     } else {
       this.fallbackStore.set(key, value);
+    }
+  }
+
+  async deleteCache(cacheKey: string): Promise<void> {
+    const key = `${this.PREFIX.cache}${cacheKey}`;
+    if (this.connected) {
+      await this.redis.del(key);
+    } else {
+      this.fallbackStore.delete(key);
     }
   }
 

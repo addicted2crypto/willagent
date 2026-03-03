@@ -8,11 +8,16 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { IsString, IsOptional, IsArray, IsNumber, Max, Min } from 'class-validator';
+import { Observable, Subject, filter, map } from 'rxjs';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { AgentOrchestratorService } from './agent-orchestrator.service';
 import { MemoryService } from '../memory/memory.service';
+import { AvaxRpcService } from '../avax/services/avax-rpc.service';
 
 // ── DTOs ─────────────────────────────────────────────────────
 
@@ -38,15 +43,30 @@ export class CreateTaskDto {
 
 // ── Controller ───────────────────────────────────────────────
 
+interface ProgressEvent {
+  taskId: string;
+  step: string;
+  message: string;
+  progress: number;
+}
+
 @ApiTags('agent')
 @Controller('api/v1/agent')
 export class AgentController {
   private readonly logger = new Logger(AgentController.name);
+  private readonly progressSubject = new Subject<ProgressEvent>();
 
   constructor(
     private readonly orchestrator: AgentOrchestratorService,
     private readonly memory: MemoryService,
-  ) {}
+    private readonly eventEmitter: EventEmitter2,
+    private readonly avaxRpc: AvaxRpcService,
+  ) {
+    // Listen for progress events from services
+    this.eventEmitter.on('task.progress', (event: ProgressEvent) => {
+      this.progressSubject.next(event);
+    });
+  }
 
   @Post('task')
   @HttpCode(HttpStatus.OK)
@@ -106,12 +126,55 @@ export class AgentController {
 
   @Get('health')
   @ApiOperation({ summary: 'Health check' })
-  healthCheck() {
+  async healthCheck() {
+    // Quick RPC test to verify endpoints
+    let blockNumber: number | null = null;
+    let rpcStatus = 'unknown';
+    try {
+      blockNumber = await this.avaxRpc.getBlockNumber();
+      rpcStatus = 'ok';
+    } catch {
+      rpcStatus = 'error';
+    }
+
     return {
       status: 'ok',
       service: 'willagent',
       timestamp: new Date().toISOString(),
       tools: 'operational',
+      rpc: {
+        status: rpcStatus,
+        blockNumber,
+        endpointWins: this.avaxRpc.getEndpointStats(),
+      },
     };
+  }
+
+  @Sse('task/:id/stream')
+  @ApiOperation({ summary: 'Stream task progress via SSE' })
+  streamTaskProgress(@Param('id') id: string): Observable<MessageEvent> {
+    this.logger.log(`SSE connection opened for task ${id}`);
+
+    return this.progressSubject.pipe(
+      filter((event) => event.taskId === id),
+      map((event) => ({
+        data: JSON.stringify({
+          step: event.step,
+          message: event.message,
+          progress: event.progress,
+        }),
+      })),
+    );
+  }
+
+  @Get('progress/all')
+  @ApiOperation({ summary: 'Stream all progress events (debug)' })
+  @Sse()
+  streamAllProgress(): Observable<MessageEvent> {
+    return this.progressSubject.pipe(
+      map((event) => ({
+        data: JSON.stringify(event),
+      })),
+    );
   }
 }
