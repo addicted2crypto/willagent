@@ -31,7 +31,7 @@ inspect <token|address>     → deep score — liquidity, volume, wallet quality
 ## Live Pulse
 
 ```
-watch <0x token address>    → stream price + MC + buys every 30s (updates in-place)
+watch <0x token address>    → stream price + Market Cap + buys every 30s (updates in-place)
 unwatch all
 ```
 
