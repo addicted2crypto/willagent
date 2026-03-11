@@ -1,162 +1,146 @@
-# 🤖 WillAgent
+# AnonAgent
 
-Self-hosted AI agent orchestrator with multi-model routing, ReACT execution, and pluggable tool system.
+Self-hosted on-chain intelligence terminal with multi-model AI routing, live token monitoring, and wallet analysis — built for AVAX and EVM chains.
 
-> Built as a secure, transparent alternative to hosted agent platforms. Full control over data pipeline, model routing, and tool execution.
+> Own your data pipeline. No third-party surveillance. Full control over model routing and tooling.
 
-## Architecture
+---
+
+## What it does
+
+AnonAgent gives you a command-driven terminal for real-time on-chain research:
+
+- **Token pulse** — live price, market cap, liquidity, and recent buys updating every 30s
+- **Token discovery** — scan hot tokens, find who bought, trace wallet connections
+- **Wallet intelligence** — cluster related wallets, score behaviour, tag and track
+- **Smart routing** — simple queries hit a local model; complex analysis escalates automatically
+
+---
+
+## Token Discovery Flow
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    API Gateway                       │
-│              POST /api/v1/agent/task                 │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│              Model Router Service                    │
-│   Classifies complexity → routes to best provider    │
-│                                                      │
-│   LOW/MEDIUM  ──→  Local Model (Ollama/vLLM)        │
-│   HIGH/CRIT   ──→  Claude API (Anthropic)           │
-└──────────────────────┬──────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────┐
-│            Agent Orchestrator (ReACT Loop)            │
-│                                                      │
-│   ┌─────────┐   ┌────────┐   ┌─────────────┐       │
-│   │ THOUGHT │──▶│ ACTION │──▶│ OBSERVATION │──┐     │
-│   └─────────┘   └────────┘   └─────────────┘  │     │
-│        ▲                                       │     │
-│        └───────────────────────────────────────┘     │
-│                     │                                │
-│              FINAL_ANSWER                            │
-└──────────────────────┬──────────────────────────────┘
-                       │
-          ┌────────────┼────────────┐
-          ▼            ▼            ▼
-   ┌────────────┐ ┌─────────┐ ┌──────────┐
-   │ Tool Reg.  │ │ Memory  │ │  Audit   │
-   │ shell_exec │ │ (Redis) │ │   Log    │
-   │ web_fetch  │ │ tasks   │ │ actions  │
-   │ json_xform │ │ convos  │ │ results  │
-   │ + custom   │ │ cache   │ │ timing   │
-   └────────────┘ └─────────┘ └──────────┘
+scan                        → surface trending tokens on-chain
+who_bought <token>          → find recent buyers by address
+connected <wallet1> <wallet2>  → are these the same person?
+inspect <token|address>     → deep score — liquidity, volume, wallet quality
 ```
+
+---
+
+## Live Pulse
+
+```
+watch <0x token address>    → stream price + MC + buys every 30s (updates in-place)
+unwatch all
+```
+
+Output:
+```
+PULSE:TOKEN
+TOKEN  WAVAX/TOKEN · Pharaoh  $0.1393  |  1h: -0.90%  |  24h: +3.47%
+MC: $1.24M  (19.6x liq)  |  Liq: $63.5k  |  Vol24h: $27.3k  |  Buys/Sells: 80/170
+
+Recent buys (30m) — 3 txs:
+  0x4a3f…c927  $1.2k  (8,612 TOKEN)  4m ago   tx↗  🐦  [copy]
+  0x9b12…f401  $390   (2,800 TOKEN)  11m ago  tx↗  🐦  [copy]
+```
+
+---
+
+## Wallet Commands
+
+```
+sleuth <address|alias>      → fast identity lookup — ENS, labels, tier, intel links
+buyers <token address>      → who bought this token recently
+connected <w1> <w2>         → verify if two wallets are linked
+tag <address> <name>        → save a wallet alias
+<alias>                     → cluster analysis for any saved wallet alias
+```
+
+---
+
+## Model Routing
+
+Three-tier routing keeps costs low and latency fast:
+
+| Signal strength | Model |
+|----------------|-------|
+| Simple lookups, price checks | Local (Ollama / vLLM) |
+| Wallet analysis, token scoring | Turbo (GPT-class remote) |
+| Critical signals, deep reasoning | Claude (Anthropic API) |
+
+The agent escalates automatically based on signal strength — most queries never leave your machine.
+
+---
 
 ## Quick Start
 
 ```bash
-# 1. Clone and install
+# 1. Clone and configure
 cp .env.example .env
-# Edit .env with your CLAUDE_API_KEY
+# Add your API keys — see .env.example for required vars
 
-# 2. Start services
-docker-compose up -d   # Redis + (optional) Ollama
-
-# 3. Run the agent
+# 2. Start the server
 npm install
 npm run start:dev
 
-# 4. Test it
-curl -X POST http://localhost:3100/api/v1/agent/task \
-  -H "Content-Type: application/json" \
-  -d '{"input": "List the files in the current directory and tell me the largest one"}'
+# 3. Open the terminal
+open http://localhost:3100
 ```
 
-**Swagger docs** → http://localhost:3100/docs
+Redis is optional — falls back to in-memory for development.
 
-## Project Structure
+---
 
-```
-willagent/
-├── src/
-│   ├── agent/
-│   │   ├── agent-orchestrator.service.ts   # ReACT loop engine
-│   │   ├── agent.controller.ts             # REST API endpoints
-│   │   └── agent.module.ts
-│   ├── models/
-│   │   ├── model-router.service.ts         # Complexity → provider routing
-│   │   ├── model-client.service.ts         # Claude + Ollama API clients
-│   │   └── models.module.ts
-│   ├── tools/
-│   │   ├── tool-registry.service.ts        # Tool management + execution
-│   │   ├── builtin-tools.ts                # shell_exec, web_fetch, json_transform
-│   │   └── tools.module.ts
-│   ├── memory/
-│   │   ├── memory.service.ts               # Redis state + audit persistence
-│   │   └── memory.module.ts
-│   ├── common/
-│   │   └── interfaces/
-│   │       └── agent.types.ts              # Core type definitions
-│   ├── app.module.ts
-│   └── main.ts
-├── config/
-│   └── configuration.ts                    # Validated env config
-├── docker/
-│   └── Dockerfile
-├── docker-compose.yml
-└── .env.example
-```
+## Stack
 
-## Adding Custom Tools
+- **NestJS + TypeScript** — modular backend, pluggable skill system
+- **DexScreener API** — token discovery and market data
+- **Routescan API** — on-chain transaction history (AVAX, ETH, BSC, Base, Polygon, Arbitrum)
+- **Redis** — state, caching, event bus
+- **PostgreSQL** — wallet graph and scoring persistence
+- **Local + remote LLMs** — via OpenWebUI-compatible endpoint
 
-Create a new tool by implementing the `ToolExecutor` interface:
+---
+
+## Adding Tools
+
+Implement the `ToolExecutor` interface and register with the tool registry:
 
 ```typescript
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { ToolExecutor, ToolRegistryService } from '../tools/tool-registry.service';
-
 @Injectable()
-export class MyCustomTool implements ToolExecutor, OnModuleInit {
+export class MyTool implements ToolExecutor, OnModuleInit {
   readonly definition = {
     name: 'my_tool',
     description: 'What this tool does',
     inputSchema: {
       type: 'object',
-      properties: {
-        param1: { type: 'string', description: '...' },
-      },
-      required: ['param1'],
+      properties: { query: { type: 'string' } },
+      required: ['query'],
     },
-    sandboxed: false,
-    timeout: 10000,
-    tags: ['custom'],
   };
 
   constructor(private readonly registry: ToolRegistryService) {}
-
-  onModuleInit() {
-    this.registry.register(this);
-  }
+  onModuleInit() { this.registry.register(this); }
 
   async execute(args: Record<string, unknown>) {
-    // Your logic here
-    return { success: true, output: 'result', executionTimeMs: 0 };
+    return { success: true, output: '...' };
   }
 }
 ```
 
-Then add it as a provider in `tools.module.ts`.
+---
 
-## Roadmap
+## Security
 
-- [ ] Streaming responses via SSE
-- [ ] WebSocket support for real-time task updates
-- [ ] Docker sandbox for shell_exec (currently direct execution)
-- [ ] MCP protocol support for external tool servers
-- [ ] Task queue with Bull/BullMQ for background processing
-- [ ] Dashboard UI (React) for task monitoring
-- [ ] Custom tool: AVAX chain queries
-- [ ] Custom tool: GymTech API integration
-- [ ] Custom tool: Appliance Consult KB updater
-- [ ] Rate limiting middleware
-- [ ] Auth layer (JWT / API key)
+- Secrets in `.env` only — never committed
+- Redis auth supported
+- All tool executions are audit-logged
+- Designed for self-hosted, air-gapped deployments
 
-## Security Notes
+---
 
-- Shell tool has a command blocklist (expandable)
-- Redis auth supported via `REDIS_PASSWORD`
-- Dockerfile runs as non-root `agent` user
-- CORS configurable via `CORS_ORIGINS`
-- All tool executions emit audit events
-- Designed for eventual Docker sandbox isolation per tool call
+## Status
+
+Active development. AVAX chain support is primary; other EVM chains available via the pulse endpoint.
